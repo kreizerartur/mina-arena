@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Минная арена</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div id="app">
+    <header id="hud">
+      <div id="score"></div>
+      <div id="timer">2:00</div>
+      <button id="btnSound" aria-label="Звук">🔊</button>
+    </header>
+
+    <div id="stage">
+      <canvas id="cv"></canvas>
+      <div id="banner" class="hidden"></div>
+    </div>
+
+    <div id="controls">
+      <div id="stick"><div id="knob"></div></div>
+      <div id="btns">
+        <button id="btnMine"><b>МИНА</b><small>E</small></button>
+        <button id="btnFire"><b>ОГОНЬ</b><small>пробел</small></button>
+      </div>
+    </div>
+
+    <div id="screen" class="overlay">
+      <h1>Минная арена</h1>
+      <p class="sub">Прототип · танки и мины</p>
+      <div class="how">
+        <p>Вы — <b class="you">оливковый танк</b> с жёлтой меткой. Против вас три танка-бота. Выживает один.</p>
+        <p><b>Пушка</b> бьёт по прямой и ломает кирпич. <b>Мина</b> взрывается через 2,5 с крестом — и задевает всех, вас тоже. Мины взрываются цепочкой.</p>
+        <p>Из кирпичей выпадают ящики: <b>+1 мина</b>, <b>дальность взрыва</b>, <b>скорость</b>, <b>броня</b>, <b>скорострельность</b>.</p>
+        <p>С 70-й секунды арена сжимается — красные клетки скоро станут бетоном.</p>
+        <p class="keys">Телефон: джойстик слева, кнопки справа.<br>Компьютер: WASD / стрелки, пробел — огонь, E — мина.</p>
+      </div>
+      <button id="btnStart" class="big">В бой</button>
+    </div>
+  </div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
