@@ -1,11 +1,12 @@
-// ИИ ботов: убегать от взрывов, стрелять по линии, ставить мины с путём отхода, ломать кирпичи, собирать бонусы.
-import { W, T, DIRS } from './world.js';
+// ИИ ботов: убегать от взрывов, стрелять по линии, ставить мины с путём отхода, ломать кирпичи,
+// собирать бонусы, взрывать бочки рядом с врагами, подрывать радиомины. Сила зависит от сложности.
+import { W, T, DIRS } from './world.js?v=202611242311';
 
 const key = (x, y) => y * W + x;
+const rnd = (w, [a, b]) => a + w.rand() * (b - a);
 
 function passable(w, x, y) {
-  const tt = w.tile(x, y);
-  return (tt === T.EMPTY || tt === T.BUSH) && !w.mineAt(x, y);
+  return w.walkable(w.tile(x, y)) && !w.mineAt(x, y);
 }
 
 export function blastCells(w, m) {
@@ -16,7 +17,7 @@ export function blastCells(w, m) {
       const tt = w.tile(x, y);
       if (tt === T.STEEL) break;
       cells.push([x, y]);
-      if (tt === T.BRICK) break;
+      if (tt === T.BRICK || tt === T.BARREL) break;
     }
   }
   return cells;
@@ -27,7 +28,17 @@ export function dangerMap(w) {
   if (w._dangerTime === w.time && w._danger) return w._danger;
   const d = new Map();
   for (const f of w.fires) d.set(key(f.x, f.y), 0);
-  const ms = w.mines.map(m => ({ m, t: m.timer, cells: blastCells(w, m) }));
+  // радиомина может взорваться в любой момент — для всех считаем её «скорой»
+  const ms = w.mines.map(m => ({ m, t: m.remote ? Math.min(m.timer, 1.5) : m.timer, cells: blastCells(w, m) }));
+  // бочки, до которых дотянется взрыв, сами взорвутся следом
+  for (const a of ms.slice()) {
+    for (const [x, y] of a.cells) {
+      if (w.tile(x, y) === T.BARREL) {
+        const bm = { x, y, range: 2 };
+        ms.push({ m: bm, t: a.t + 0.12, cells: blastCells(w, bm) });
+      }
+    }
+  }
   for (let it = 0; it < 3; it++) {
     for (const a of ms) for (const [x, y] of a.cells) {
       const b = ms.find(o => o.m.x === x && o.m.y === y);
@@ -90,13 +101,13 @@ export function clearLine(w, x0, y0, x1, y1) {
   let x = x0 + dx, y = y0 + dy;
   while (x !== x1 || y !== y1) {
     const tt = w.tile(x, y);
-    if (tt === T.STEEL || tt === T.BRICK) return false;
+    if (tt === T.STEEL || tt === T.BRICK || tt === T.BARREL) return false;
     x += dx; y += dy;
   }
   return true;
 }
 
-function lineTarget(w, t, range) {
+function lineTarget(w, t, range, diff) {
   const x = Math.round(t.x), y = Math.round(t.y);
   let best = null;
   for (const e of w.tanks) {
@@ -108,9 +119,31 @@ function lineTarget(w, t, range) {
     if (w.tile(ex, ey) === T.BUSH && d > 2) continue; // в кустах не видно
     if (!clearLine(w, x, y, ex, ey)) continue;
     const dir = ex > x ? 1 : ex < x ? 3 : ey > y ? 2 : 0;
-    if (!best || d < best.d) best = { dir, d, e };
+    const prio = d - (diff.focusHuman && w.humans.includes(e.id) ? 3 : 0);
+    if (!best || prio < best.prio) best = { dir, d, e, prio };
   }
   return best;
+}
+
+// Бочка на линии огня, взрыв которой заденет врага, но не самого бота.
+function barrelTarget(w, t) {
+  const x = Math.round(t.x), y = Math.round(t.y);
+  for (let dir = 0; dir < 4; dir++) {
+    const [dx, dy] = DIRS[dir];
+    for (let i = 1; i <= 7; i++) {
+      const bx = x + dx * i, by = y + dy * i;
+      const tt = w.tile(bx, by);
+      if (tt === T.BARREL) {
+        const cells = blastCells(w, { x: bx, y: by, range: 2 });
+        const inCells = (px, py) => cells.some(([cx, cy]) => cx === px && cy === py);
+        if (inCells(x, y)) break;
+        if (w.tanks.some(e => e.alive && e !== t && inCells(Math.round(e.x), Math.round(e.y)))) return dir;
+        break;
+      }
+      if (tt === T.STEEL || tt === T.BRICK) break;
+    }
+  }
+  return -1;
 }
 
 function adjBrickDir(w, x, y) {
@@ -124,8 +157,9 @@ function enemyInBlast(w, t) {
     cells.some(([x, y]) => x === Math.round(e.x) && y === Math.round(e.y)));
 }
 
-function tryMine(w, t, danger) {
-  if (w.mines.filter(m => m.owner === t.id).length >= t.maxMines) return false;
+function tryMine(w, t, danger, diff) {
+  if (w.hasRemote(t)) return false;
+  if (w.mines.filter(m => m.owner === t.id && !m.barrel).length >= t.maxMines) return false;
   if (w.mineAt(t.tx, t.ty)) return false;
   const d2 = new Map(danger);
   for (const [x, y] of blastCells(w, { x: t.tx, y: t.ty, range: t.range })) {
@@ -138,47 +172,84 @@ function tryMine(w, t, danger) {
   t.mine = true;
   t.hold = false;
   t.want = safe.first;
-  t.ai.mineCd = 1.5 + w.rand() * 2;
+  t.ai.mineCd = rnd(w, diff.mineCd);
   return true;
 }
 
+// Подорвать свою радиомину, если враг в зоне взрыва, а сам бот — нет.
+function remoteCheck(w, t) {
+  const x = Math.round(t.x), y = Math.round(t.y);
+  for (const m of w.mines) {
+    if (m.owner !== t.id || !m.remote) continue;
+    const cells = blastCells(w, m);
+    const inCells = (px, py) => cells.some(([cx, cy]) => cx === px && cy === py);
+    if (inCells(x, y)) continue;
+    const enemyIn = w.tanks.some(e => e.alive && e !== t && inCells(Math.round(e.x), Math.round(e.y)));
+    if (enemyIn || m.age > 8) return true;
+  }
+  return false;
+}
+
 export function botThink(w, t, dt) {
-  const ai = t.ai || (t.ai = { aim: 0, mineCd: 1 + w.rand() * 2, jitter: new Map(), jt: 0, react: 0.15 + w.rand() * 0.25 });
+  // diffOverride — сила бота, играющего за человека (режим отладки ?auto=1 и тесты)
+  const diff = t.diffOverride || w.diff;
+  const ai = t.ai || (t.ai = {
+    aim: 0, mineCd: rnd(w, diff.mineCd), jitter: new Map(), jt: 0, react: rnd(w, diff.react), dangerSince: -1,
+  });
   ai.mineCd -= dt;
   ai.jt -= dt;
   t.fire = false;
   t.mine = false;
+  const calm = w.time < w.peace; // обучение: боты пока не нападают
+
+  if (!calm && w.hasRemote(t) && remoteCheck(w, t)) t.mine = true;
 
   const atCenter = t.x === t.tx && t.y === t.ty;
   if (!atCenter) {
-    const lt = lineTarget(w, t, 9);
-    if (lt && lt.dir === t.dir) t.fire = true;
+    if (!calm) {
+      const lt = lineTarget(w, t, diff.range, diff);
+      if (lt && lt.dir === t.dir) t.fire = true;
+    }
     return;
   }
 
   const danger = dangerMap(w);
   if (danger.has(key(t.tx, t.ty))) {
-    const safe = nearestSafe(bfs(w, t, danger), danger);
-    t.hold = false;
-    t.want = safe ? safe.first : -1;
-    ai.aim = 0;
-    return;
-  }
+    if (ai.dangerSince < 0) ai.dangerSince = w.time;
+    // на лёгкой сложности бот замечает опасность с опозданием
+    if (w.time - ai.dangerSince >= diff.fleeDelay) {
+      const safe = nearestSafe(bfs(w, t, danger), danger);
+      t.hold = false;
+      t.want = safe ? safe.first : -1;
+      ai.aim = 0;
+      return;
+    }
+  } else ai.dangerSince = -1;
 
-  const lt = lineTarget(w, t, 9);
-  if (lt) {
-    if (lt.d <= t.range && ai.mineCd <= 0 && tryMine(w, t, danger)) return;
-    t.hold = true;
-    t.want = lt.dir;
-    if (t.dir === lt.dir) { ai.aim += dt; if (ai.aim > ai.react) t.fire = true; }
-    else ai.aim = 0;
-    return;
+  if (!calm) {
+    const lt = lineTarget(w, t, diff.range, diff);
+    if (lt) {
+      if (lt.d <= t.range && ai.mineCd <= 0 && tryMine(w, t, danger, diff)) return;
+      t.hold = true;
+      t.want = lt.dir;
+      if (t.dir === lt.dir) { ai.aim += dt; if (ai.aim > ai.react) t.fire = true; }
+      else ai.aim = 0;
+      return;
+    }
+    const bdir = barrelTarget(w, t);
+    if (bdir >= 0) {
+      t.hold = true;
+      t.want = bdir;
+      if (t.dir === bdir) { ai.aim += dt; if (ai.aim > ai.react) t.fire = true; }
+      return;
+    }
   }
   ai.aim = 0;
 
   if (ai.mineCd <= 0) {
     const nearBrick = adjBrickDir(w, t.tx, t.ty) >= 0;
-    if ((enemyInBlast(w, t) || (nearBrick && w.rand() < 0.25)) && tryMine(w, t, danger)) return;
+    const wantMine = (!calm && enemyInBlast(w, t)) || (nearBrick && w.rand() < 0.25);
+    if (wantMine && tryMine(w, t, danger, diff)) return;
   }
 
   if (ai.jt <= 0) { ai.jitter = new Map(); ai.jt = 2.5; }
@@ -190,14 +261,19 @@ export function botThink(w, t, dt) {
     if (danger.has(nk)) continue;
     let s = -n.d;
     if (w.bonuses.some(b => b.x === n.x && b.y === n.y)) s += 12;
+    if (w.tile(n.x, n.y) === T.ICE) s -= 0.5;
     let minE = 99;
-    for (const e of enemies) {
-      const ex = Math.round(e.x), ey = Math.round(e.y);
-      const md = Math.abs(ex - n.x) + Math.abs(ey - n.y);
-      minE = Math.min(minE, md);
-      if ((ex === n.x || ey === n.y) && md > 1 && md <= 8 && clearLine(w, n.x, n.y, ex, ey)) s += 7;
+    if (!calm) {
+      for (const e of enemies) {
+        const ex = Math.round(e.x), ey = Math.round(e.y);
+        const md = Math.abs(ex - n.x) + Math.abs(ey - n.y);
+        minE = Math.min(minE, md);
+        if ((ex === n.x || ey === n.y) && md > 1 && md <= 8 && clearLine(w, n.x, n.y, ex, ey)) {
+          s += 7 + (diff.focusHuman && w.humans.includes(e.id) ? 3 : 0);
+        }
+      }
+      s -= minE * 0.35;
     }
-    s -= minE * 0.35;
     if (adjBrickDir(w, n.x, n.y) >= 0) s += 2;
     if (!ai.jitter.has(nk)) ai.jitter.set(nk, w.rand() * 3);
     s += ai.jitter.get(nk);

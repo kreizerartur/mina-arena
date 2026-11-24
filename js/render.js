@@ -1,13 +1,49 @@
 // Отрисовка кодом: земля, бетон, кирпич, вода, кусты, танки, мины, взрывы, частицы.
-import { W, T, TANK_INFO, LEVELS } from './world.js';
+import { W, T, TANK_INFO, LEVELS, SKINS } from './world.js?v=202611242311';
 
 const BRICK_COLORS = ['#9a5236', '#8d4a30', '#a65a3c', '#874630', '#93503a'];
 const BONUS_STYLE = {
-  mines: { color: '#c0392b', glyph: '+1' },
-  range: { color: '#e67e22', glyph: '↔' },
-  speed: { color: '#2e86c1', glyph: '»' },
-  armor: { color: '#27ae60', glyph: '✚' },
-  rapid: { color: '#d4ac0d', glyph: 'ϟ' },
+  mines:    { color: '#c0392b', glyph: '+1' },
+  range:    { color: '#e67e22', glyph: '↔' },
+  speed:    { color: '#2e86c1', glyph: '»' },
+  armor:    { color: '#27ae60', glyph: '✚' },
+  rapid:    { color: '#d4ac0d', glyph: 'ϟ' },
+  shield:   { color: '#1f9bd1', glyph: '◯' },
+  repair:   { color: '#d6457a', glyph: '♥︎' },
+  remote:   { color: '#8e44ad', glyph: '⊙' },
+  ricochet: { color: '#16a085', glyph: '↺' },
+};
+
+// Палитры арен.
+const PALETTES = {
+  field: {
+    ground: '#7b6f50', grain: ['#857858', '#71664a', '#8e8263', '#665c42', '#958a6a'],
+    patchA: 'rgba(92,110,56,0.26)', patchB: 'rgba(64,54,36,0.2)', grass: true,
+    road: 'rgba(150,134,98,0.4)', rut: 'rgba(70,58,38,0.3)', stones: ['#9c937c', '#857d69'],
+    tufts: 130, puddles: 6, cracks: 9, debris: 26,
+    bricks: BRICK_COLORS, mortar: '#5a3222', brickSide: '#4a281b', brickSideA: '#6e3a26', brickSideB: '#643421',
+  },
+  city: {
+    ground: '#5f6163', grain: ['#686a6c', '#56595b', '#717375', '#4f5254', '#7a7c7e'],
+    patchA: 'rgba(40,42,44,0.28)', patchB: 'rgba(120,122,122,0.18)', grass: false,
+    road: 'rgba(38,40,42,0.55)', rut: 'rgba(235,235,225,0.75)', stones: ['#8d8f90', '#707274'],
+    tufts: 25, puddles: 9, cracks: 18, debris: 34,
+    bricks: ['#8a5a4a', '#7b4e40', '#94604f', '#704638', '#865848'], mortar: '#4a3a33', brickSide: '#3e2e28', brickSideA: '#5c4036', brickSideB: '#523830',
+  },
+  winter: {
+    ground: '#d6dfe5', grain: ['#e4ebf0', '#c9d4dc', '#f1f5f8', '#bfcbd4', '#dbe3e9'],
+    patchA: 'rgba(255,255,255,0.45)', patchB: 'rgba(150,170,185,0.22)', grass: false,
+    road: 'rgba(170,186,198,0.45)', rut: 'rgba(110,128,145,0.35)', stones: ['#8c969e', '#737d85'],
+    tufts: 0, puddles: 0, cracks: 3, debris: 10, snow: true,
+    bricks: BRICK_COLORS, mortar: '#5a3222', brickSide: '#4a281b', brickSideA: '#6e3a26', brickSideB: '#643421',
+  },
+  desert: {
+    ground: '#c7a66a', grain: ['#d1b378', '#bd9c5f', '#d9bd85', '#b28e54', '#cdac6f'],
+    patchA: 'rgba(160,120,70,0.2)', patchB: 'rgba(232,208,155,0.32)', grass: false,
+    road: 'rgba(176,146,98,0.35)', rut: 'rgba(130,100,60,0.3)', stones: ['#b69a6c', '#9a7f55'],
+    tufts: 40, puddles: 0, cracks: 6, debris: 14, dunes: true,
+    bricks: ['#c99a62', '#b8895a', '#d2a56c', '#ad7f4f', '#c39460'], mortar: '#8a6a42', brickSide: '#7a5a36', brickSideA: '#a07646', brickSideB: '#946c40',
+  },
 };
 
 function hash(a, b) {
@@ -66,6 +102,7 @@ export class Renderer {
 
   reset(world) {
     this.world = world;
+    this.P = PALETTES[world.theme] || PALETTES.field;
     this.parts = [];
     this.shake = 0;
     this.stamps = new Map();
@@ -86,8 +123,8 @@ export class Renderer {
 
   // ---------- статичные слои ----------
   paintGround(g) {
-    const bw = this.bw, s = this.ts;
-    g.fillStyle = '#7b6f50';
+    const bw = this.bw, s = this.ts, P = this.P || PALETTES.field, th = this.world.theme;
+    g.fillStyle = P.ground;
     g.fillRect(0, 0, bw, bw);
 
     // лёгкая разница оттенка по клеткам
@@ -97,33 +134,53 @@ export class Renderer {
       g.fillRect(x * s, y * s, s, s);
     }
 
-    // накатанные дороги крест-накрест через центр
+    // дороги крест-накрест через центр
     const mid = Math.floor(W / 2) * s;
-    g.fillStyle = 'rgba(150,134,98,0.4)';
+    g.fillStyle = P.road;
     g.fillRect(0, mid + s * 0.08, bw, s * 0.84);
     g.fillRect(mid + s * 0.08, 0, s * 0.84, bw);
-    g.strokeStyle = 'rgba(70,58,38,0.3)';
-    g.lineWidth = Math.max(1.5, s * 0.07);
-    g.setLineDash([s * 0.5, s * 0.14]);
-    for (const o of [0.3, 0.7]) {
-      g.beginPath(); g.moveTo(0, mid + s * o); g.lineTo(bw, mid + s * o); g.stroke();
-      g.beginPath(); g.moveTo(mid + s * o, 0); g.lineTo(mid + s * o, bw); g.stroke();
+    if (th === 'city') {
+      // разметка: прерывистая линия по оси и зебра у перекрёстка
+      g.strokeStyle = P.rut;
+      g.lineWidth = Math.max(1.5, s * 0.05);
+      g.setLineDash([s * 0.4, s * 0.3]);
+      g.beginPath(); g.moveTo(0, mid + s * 0.5); g.lineTo(bw, mid + s * 0.5); g.stroke();
+      g.beginPath(); g.moveTo(mid + s * 0.5, 0); g.lineTo(mid + s * 0.5, bw); g.stroke();
+      g.setLineDash([]);
+      g.fillStyle = 'rgba(235,235,225,0.6)';
+      for (let i = 0; i < 5; i++) {
+        g.fillRect(mid - s * 0.9, mid + s * (0.15 + i * 0.15), s * 0.7, s * 0.07);
+        g.fillRect(mid + s * (0.15 + i * 0.15), mid - s * 0.9, s * 0.07, s * 0.7);
+      }
+      g.fillStyle = 'rgba(150,150,145,0.5)';
+      g.fillRect(0, mid + s * 0.04, bw, Math.max(1, s * 0.04));
+      g.fillRect(0, mid + s * 0.92, bw, Math.max(1, s * 0.04));
+      g.fillRect(mid + s * 0.04, 0, Math.max(1, s * 0.04), bw);
+      g.fillRect(mid + s * 0.92, 0, Math.max(1, s * 0.04), bw);
+    } else {
+      g.strokeStyle = P.rut;
+      g.lineWidth = Math.max(1.5, s * 0.07);
+      g.setLineDash([s * 0.5, s * 0.14]);
+      for (const o of [0.3, 0.7]) {
+        g.beginPath(); g.moveTo(0, mid + s * o); g.lineTo(bw, mid + s * o); g.stroke();
+        g.beginPath(); g.moveTo(mid + s * o, 0); g.lineTo(mid + s * o, bw); g.stroke();
+      }
+      g.setLineDash([]);
     }
-    g.setLineDash([]);
 
-    // пятна травы и голой земли
+    // пятна (на поле — с травой)
     for (let i = 0; i < 20; i++) {
       const x = Math.random() * bw, y = Math.random() * bw, r = s * (0.7 + Math.random() * 1.6);
-      const grass = Math.random() < 0.6;
-      g.fillStyle = grass ? 'rgba(92,110,56,0.26)' : 'rgba(64,54,36,0.2)';
+      const a = Math.random() < 0.6;
+      g.fillStyle = a ? P.patchA : P.patchB;
       g.beginPath(); g.ellipse(x, y, r, r * 0.7, Math.random() * 3, 0, Math.PI * 2); g.fill();
-      if (grass) {
+      if (a && P.grass) {
         g.strokeStyle = 'rgba(86,108,50,0.75)';
         g.lineWidth = 1;
         g.beginPath();
         for (let k = 0; k < 26; k++) {
-          const a = Math.random() * Math.PI * 2, d = Math.random() * r * 0.85;
-          const bx = x + Math.cos(a) * d, by = y + Math.sin(a) * d * 0.7;
+          const an = Math.random() * Math.PI * 2, d = Math.random() * r * 0.85;
+          const bx = x + Math.cos(an) * d, by = y + Math.sin(an) * d * 0.7;
           g.moveTo(bx, by);
           g.lineTo(bx + (Math.random() - 0.5) * 3, by - s * (0.06 + Math.random() * 0.09));
         }
@@ -131,26 +188,73 @@ export class Renderer {
       }
     }
 
-    // зернистость грунта
-    const cols = ['#857858', '#71664a', '#8e8263', '#665c42', '#958a6a'];
+    // зернистость
     const n = (bw * bw) / 6;
     for (let i = 0; i < n; i++) {
-      g.fillStyle = cols[i % cols.length];
+      g.fillStyle = P.grain[i % P.grain.length];
       g.globalAlpha = 0.35 + Math.random() * 0.4;
       const sz = Math.random() < 0.9 ? 1 : 2;
       g.fillRect(Math.random() * bw, Math.random() * bw, sz, sz);
     }
     g.globalAlpha = 1;
 
+    // сугробы со следами (зима)
+    if (P.snow) {
+      for (let i = 0; i < 26; i++) {
+        const x = Math.random() * bw, y = Math.random() * bw, r = s * (0.25 + Math.random() * 0.5);
+        g.fillStyle = 'rgba(120,140,160,0.25)';
+        g.beginPath(); g.ellipse(x + r * 0.15, y + r * 0.25, r, r * 0.55, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.85)';
+        g.beginPath(); g.ellipse(x, y, r, r * 0.55, 0, 0, Math.PI * 2); g.fill();
+      }
+      g.fillStyle = 'rgba(110,128,145,0.3)';
+      for (let i = 0; i < 4; i++) {
+        let x = Math.random() * bw, y = Math.random() * bw;
+        const ang = Math.random() * Math.PI * 2;
+        for (let k = 0; k < 10; k++) {
+          g.beginPath(); g.ellipse(x + (k % 2) * 3, y, 1.6, 2.4, ang, 0, Math.PI * 2); g.fill();
+          x += Math.cos(ang) * s * 0.18; y += Math.sin(ang) * s * 0.18;
+        }
+      }
+    }
+
+    // песчаная рябь (пустыня)
+    if (P.dunes) {
+      g.strokeStyle = 'rgba(140,105,60,0.28)';
+      g.lineWidth = 1;
+      for (let i = 0; i < 46; i++) {
+        const x = Math.random() * bw, y = Math.random() * bw, len = s * (0.6 + Math.random() * 1.2);
+        g.beginPath();
+        g.moveTo(x, y);
+        g.bezierCurveTo(x + len * 0.3, y - s * 0.08, x + len * 0.6, y + s * 0.08, x + len, y);
+        g.stroke();
+      }
+    }
+
     // лужи с бликом
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < P.puddles; i++) {
       const x = Math.random() * bw, y = Math.random() * bw, r = s * (0.18 + Math.random() * 0.22);
       g.fillStyle = 'rgba(52,46,32,0.5)';
       g.beginPath(); g.ellipse(x, y, r * 1.15, r * 0.75, 0.3, 0, Math.PI * 2); g.fill();
-      g.fillStyle = 'rgba(70,96,108,0.75)';
+      g.fillStyle = th === 'city' ? 'rgba(60,72,82,0.8)' : 'rgba(70,96,108,0.75)';
       g.beginPath(); g.ellipse(x, y, r, r * 0.6, 0.3, 0, Math.PI * 2); g.fill();
       g.fillStyle = 'rgba(210,230,235,0.35)';
       g.beginPath(); g.ellipse(x - r * 0.3, y - r * 0.15, r * 0.3, r * 0.1, 0.3, 0, Math.PI * 2); g.fill();
+    }
+
+    // канализационные люки (город)
+    if (th === 'city') {
+      for (let i = 0; i < 6; i++) {
+        const x = Math.random() * bw, y = Math.random() * bw, r = s * 0.16;
+        g.fillStyle = '#3c3e40';
+        g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+        g.strokeStyle = '#7d8082';
+        g.lineWidth = 1;
+        g.stroke();
+        g.beginPath();
+        for (let k = -2; k <= 2; k++) { g.moveTo(x - r * 0.8, y + k * r * 0.3); g.lineTo(x + r * 0.8, y + k * r * 0.3); }
+        g.stroke();
+      }
     }
 
     // камни с тенью
@@ -158,17 +262,17 @@ export class Renderer {
       const x = Math.random() * bw, y = Math.random() * bw, r = Math.random() * s * 0.08 + 1;
       g.fillStyle = 'rgba(30,26,18,0.4)';
       g.beginPath(); g.ellipse(x + r * 0.5, y + r * 0.6, r, r * 0.7, 0, 0, Math.PI * 2); g.fill();
-      g.fillStyle = Math.random() < 0.5 ? '#9c937c' : '#857d69';
+      g.fillStyle = Math.random() < 0.5 ? P.stones[0] : P.stones[1];
       g.beginPath(); g.ellipse(x, y, r, r * 0.75, Math.random() * 3, 0, Math.PI * 2); g.fill();
       g.fillStyle = 'rgba(255,255,255,0.25)';
       g.beginPath(); g.ellipse(x - r * 0.25, y - r * 0.25, r * 0.4, r * 0.25, 0, 0, Math.PI * 2); g.fill();
     }
 
-    // пучки сухой травы
+    // пучки травы
     g.lineWidth = 1;
-    for (let i = 0; i < 130; i++) {
+    for (let i = 0; i < P.tufts; i++) {
       const x = Math.random() * bw, y = Math.random() * bw;
-      g.strokeStyle = Math.random() < 0.6 ? 'rgba(96,112,58,0.75)' : 'rgba(150,140,88,0.75)';
+      g.strokeStyle = th === 'desert' ? 'rgba(150,120,60,0.8)' : (Math.random() < 0.6 ? 'rgba(96,112,58,0.75)' : 'rgba(150,140,88,0.75)');
       g.beginPath();
       for (let k = -1; k <= 1; k++) {
         g.moveTo(x + k * 1.5, y);
@@ -177,9 +281,9 @@ export class Renderer {
       g.stroke();
     }
 
-    // трещины в грунте
-    g.strokeStyle = 'rgba(52,44,30,0.25)';
-    for (let i = 0; i < 9; i++) {
+    // трещины
+    g.strokeStyle = th === 'winter' ? 'rgba(120,140,160,0.3)' : 'rgba(40,34,24,0.28)';
+    for (let i = 0; i < P.cracks; i++) {
       let x = Math.random() * bw, y = Math.random() * bw;
       g.lineWidth = 1 + Math.random();
       g.beginPath(); g.moveTo(x, y);
@@ -188,7 +292,7 @@ export class Renderer {
     }
 
     // мелкий мусор войны: доски, гильзы, железки
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < P.debris; i++) {
       const x = Math.random() * bw, y = Math.random() * bw, k = Math.random();
       g.save();
       g.translate(x, y);
@@ -202,7 +306,11 @@ export class Renderer {
 
   paintTiles(g) {
     const w = this.world, s = this.ts;
-    // сначала тени всех стен, потом сами стены — чтобы тень не ложилась на соседний блок
+    // лёд лежит на земле, его рисуем первым
+    for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
+      if (w.tile(x, y) === T.ICE) this.drawIce(g, x * s, y * s, s, x, y);
+    }
+    // тени всех стен, потом сами стены — чтобы тень не ложилась на соседний блок
     g.fillStyle = 'rgba(0,0,0,0.33)';
     for (let y = 0; y < W; y++) for (let x = 0; x < W; x++) {
       const t = w.tile(x, y);
@@ -212,23 +320,39 @@ export class Renderer {
       const t = w.tile(x, y);
       if (t === T.STEEL) this.drawConcrete(g, x * s, y * s, s, x, y);
       else if (t === T.BRICK) this.drawBrick(g, x * s, y * s, s, x, y, w.brickHp[w.idx(x, y)]);
+      else if (t === T.BARREL) this.drawBarrel(g, x * s, y * s, s, x, y);
     }
+  }
+
+  snowCap(g, x0, y0, s, top, tx, ty) {
+    g.fillStyle = 'rgba(250,252,255,0.95)';
+    g.beginPath();
+    g.moveTo(x0, y0);
+    g.lineTo(x0 + s, y0);
+    const n = 5;
+    for (let i = n; i >= 0; i--) {
+      const px = x0 + (s / n) * i;
+      g.lineTo(px, y0 + top * (0.25 + hash(tx * 7 + i, ty * 3) * 0.3));
+    }
+    g.closePath();
+    g.fill();
+    g.fillStyle = 'rgba(160,180,200,0.35)';
+    g.fillRect(x0, y0 + top * 0.22, s, Math.max(1, s * 0.02));
   }
 
   // Бетонный блок: верхняя грань + тёмная боковая (даёт высоту).
   drawConcrete(g, x0, y0, s, tx, ty) {
     const h = s * 0.17, top = s - h;
     const v = hash(tx * 17 + 3, ty * 29 + 5);
-    // боковая грань
+    const th = this.world.theme;
     g.fillStyle = '#4e5256';
     g.fillRect(x0, y0 + top, s, h);
     g.fillStyle = 'rgba(0,0,0,0.25)';
     g.fillRect(x0, y0 + top + h * 0.5, s, Math.max(1, s * 0.02));
     g.fillRect(x0 + s * 0.5, y0 + top, Math.max(1, s * 0.02), h);
-    // верхняя грань
     const gr = g.createLinearGradient(x0, y0, x0 + s, y0 + top);
-    gr.addColorStop(0, '#9da1a5');
-    gr.addColorStop(1, '#7c8084');
+    gr.addColorStop(0, th === 'desert' ? '#b0a58f' : '#9da1a5');
+    gr.addColorStop(1, th === 'desert' ? '#8f846e' : '#7c8084');
     g.fillStyle = gr;
     g.fillRect(x0, y0, s, top);
     g.fillStyle = 'rgba(255,255,255,0.22)';
@@ -241,7 +365,6 @@ export class Renderer {
     g.strokeRect(x0 + s * 0.16 + 0.5, y0 + s * 0.14 + 0.5, s * 0.68, top - s * 0.28);
 
     if (v < 0.22) {
-      // предупреждающая полоса
       g.save();
       g.beginPath(); g.rect(x0 + s * 0.16, y0 + top * 0.36, s * 0.68, top * 0.26); g.clip();
       g.fillStyle = '#c9a227';
@@ -253,7 +376,6 @@ export class Renderer {
       g.stroke();
       g.restore();
     } else if (v < 0.5) {
-      // трещина и мох
       g.strokeStyle = 'rgba(40,42,44,0.7)';
       g.lineWidth = 1;
       g.beginPath();
@@ -262,11 +384,12 @@ export class Renderer {
       g.lineTo(x0 + s * 0.36, y0 + top * 0.7);
       g.lineTo(x0 + s * 0.6, y0 + top);
       g.stroke();
-      g.fillStyle = 'rgba(86,112,52,0.55)';
-      g.beginPath(); g.ellipse(x0 + s * 0.78, y0 + top * 0.8, s * 0.14, s * 0.08, 0.4, 0, Math.PI * 2); g.fill();
-      g.beginPath(); g.ellipse(x0 + s * 0.14, y0 + top * 0.9, s * 0.09, s * 0.05, 0, 0, Math.PI * 2); g.fill();
+      if (th !== 'desert' && th !== 'winter') {
+        g.fillStyle = 'rgba(86,112,52,0.55)';
+        g.beginPath(); g.ellipse(x0 + s * 0.78, y0 + top * 0.8, s * 0.14, s * 0.08, 0.4, 0, Math.PI * 2); g.fill();
+        g.beginPath(); g.ellipse(x0 + s * 0.14, y0 + top * 0.9, s * 0.09, s * 0.05, 0, 0, Math.PI * 2); g.fill();
+      }
     } else if (v < 0.7) {
-      // стальной люк
       g.fillStyle = '#6a6e72';
       g.beginPath(); g.arc(x0 + s * 0.5, y0 + top * 0.5, s * 0.19, 0, Math.PI * 2); g.fill();
       g.strokeStyle = '#3f4346';
@@ -277,12 +400,10 @@ export class Renderer {
       g.moveTo(x0 + s * 0.5, y0 + top * 0.5 - s * 0.14); g.lineTo(x0 + s * 0.5, y0 + top * 0.5 + s * 0.14);
       g.stroke();
     }
-    // потёки и выбоины
     for (let i = 0; i < 5; i++) {
       g.fillStyle = 'rgba(50,52,54,0.3)';
       g.fillRect(x0 + s * (0.1 + hash(tx * 9 + i, ty) * 0.75), y0 + top * (0.1 + hash(tx, ty * 9 + i) * 0.75), 2, 2);
     }
-    // болты
     g.fillStyle = '#c9cdd1';
     for (const [a, b] of [[0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9]]) {
       g.beginPath(); g.arc(x0 + s * a, y0 + top * b, Math.max(1, s * 0.035), 0, Math.PI * 2); g.fill();
@@ -291,23 +412,23 @@ export class Renderer {
     for (const [a, b] of [[0.1, 0.1], [0.9, 0.1], [0.1, 0.9], [0.9, 0.9]]) {
       g.beginPath(); g.arc(x0 + s * a + 1, y0 + top * b + 1, Math.max(0.6, s * 0.018), 0, Math.PI * 2); g.fill();
     }
+    if (th === 'winter') this.snowCap(g, x0, y0, s, top, tx, ty);
   }
 
-  // Кирпичная стена: кладка сверху + боковая грань; при hp=1 — выбитые кирпичи и обломки.
+  // Кирпичная стена (в пустыне — песчаник): кладка сверху + боковая грань.
   drawBrick(g, x0, y0, s, tx, ty, hp) {
+    const P = this.P || PALETTES.field, th = this.world.theme;
     const h = s * 0.17, top = s - h;
-    // боковая грань
-    g.fillStyle = '#4a281b';
+    g.fillStyle = P.brickSide;
     g.fillRect(x0, y0 + top, s, h);
     const fb = s / 3;
     for (let c = 0; c < 3; c++) {
-      g.fillStyle = c % 2 ? '#6e3a26' : '#643421';
+      g.fillStyle = c % 2 ? P.brickSideA : P.brickSideB;
       g.fillRect(x0 + c * fb + 1, y0 + top + 1, fb - 2, h - 2);
     }
-    // кладка сверху
-    g.fillStyle = '#5a3222';
+    g.fillStyle = P.mortar;
     g.fillRect(x0, y0, s, top);
-    const rows = 4, rh = top / rows, bwid = s / 2;
+    const rows = th === 'desert' ? 3 : 4, rh = top / rows, bwid = th === 'desert' ? s / 1.6 : s / 2;
     for (let r = 0; r < rows; r++) {
       const off = r % 2 ? -bwid / 2 : 0;
       for (let c = 0; c < 3; c++) {
@@ -320,7 +441,7 @@ export class Renderer {
           g.fillRect(l + 1, by + 1, rgt - l - 2, rh - 2);
           continue;
         }
-        g.fillStyle = BRICK_COLORS[Math.floor(k * BRICK_COLORS.length)];
+        g.fillStyle = P.bricks[Math.floor(k * P.bricks.length)];
         g.fillRect(l + 1, by + 1, rgt - l - 2, rh - 2);
         g.fillStyle = 'rgba(255,225,195,0.16)';
         g.fillRect(l + 1, by + 1, rgt - l - 2, Math.max(1, rh * 0.2));
@@ -329,10 +450,14 @@ export class Renderer {
         if (k > 0.86) { g.fillStyle = 'rgba(40,20,12,0.35)'; g.fillRect(l + (rgt - l) * 0.4, by + rh * 0.3, 2, 2); }
       }
     }
-    // копоть и мох по краям
-    if (hash(tx * 31, ty * 13) < 0.3) {
+    if (th === 'field' && hash(tx * 31, ty * 13) < 0.3) {
       g.fillStyle = 'rgba(80,104,48,0.4)';
       g.beginPath(); g.ellipse(x0 + s * 0.2, y0 + top * 0.92, s * 0.16, s * 0.06, 0, 0, Math.PI * 2); g.fill();
+    }
+    if (th === 'city' && hash(tx * 11, ty * 19) < 0.25) {
+      // граффити-полоса
+      g.fillStyle = hash(tx, ty) < 0.5 ? 'rgba(200,70,60,0.55)' : 'rgba(70,150,200,0.55)';
+      g.fillRect(x0 + s * 0.15, y0 + top * 0.45, s * 0.7, Math.max(2, s * 0.08));
     }
     if (hp === 1) {
       g.strokeStyle = 'rgba(25,12,8,0.85)';
@@ -347,25 +472,89 @@ export class Renderer {
       g.fillStyle = 'rgba(20,14,10,0.3)';
       g.fillRect(x0, y0, s, top);
     }
+    if (th === 'winter') this.snowCap(g, x0, y0, s, top, tx, ty);
+  }
+
+  // Лёд: гладкий, с трещинами и бликами.
+  drawIce(g, x0, y0, s, tx, ty) {
+    const gr = g.createLinearGradient(x0, y0, x0 + s, y0 + s);
+    gr.addColorStop(0, '#cfe8f3');
+    gr.addColorStop(1, '#9fc9dc');
+    g.fillStyle = gr;
+    rr(g, x0 + 1, y0 + 1, s - 2, s - 2, s * 0.12);
+    g.fill();
+    g.strokeStyle = 'rgba(255,255,255,0.8)';
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(x0 + s * 0.15, y0 + s * 0.3); g.lineTo(x0 + s * 0.4, y0 + s * 0.15);
+    g.moveTo(x0 + s * 0.55, y0 + s * 0.8); g.lineTo(x0 + s * 0.85, y0 + s * 0.6);
+    g.stroke();
+    g.strokeStyle = 'rgba(80,130,160,0.45)';
+    g.beginPath();
+    const cx = x0 + s * (0.3 + hash(tx, ty) * 0.4), cy = y0 + s * (0.3 + hash(ty, tx) * 0.4);
+    for (let i = 0; i < 4; i++) {
+      const a = i * 1.6 + hash(tx * 3, ty * 5 + i) * 1.2;
+      g.moveTo(cx, cy);
+      g.lineTo(cx + Math.cos(a) * s * 0.35, cy + Math.sin(a) * s * 0.35);
+    }
+    g.stroke();
+    g.strokeStyle = 'rgba(120,170,195,0.6)';
+    rr(g, x0 + 1, y0 + 1, s - 2, s - 2, s * 0.12);
+    g.stroke();
+  }
+
+  // Бочка с топливом (вид сверху).
+  drawBarrel(g, x0, y0, s, tx, ty) {
+    const cx = x0 + s * 0.5, cy = y0 + s * 0.48, r = s * 0.33;
+    g.fillStyle = 'rgba(0,0,0,0.35)';
+    g.beginPath(); g.ellipse(cx + s * 0.08, cy + s * 0.1, r, r * 0.95, 0, 0, Math.PI * 2); g.fill();
+    const gr = g.createRadialGradient(cx - r * 0.35, cy - r * 0.35, r * 0.1, cx, cy, r);
+    gr.addColorStop(0, '#e25b45');
+    gr.addColorStop(1, '#8a2418');
+    g.fillStyle = gr;
+    g.beginPath(); g.arc(cx, cy, r, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = '#4e130b';
+    g.lineWidth = Math.max(1, s * 0.035);
+    g.stroke();
+    g.strokeStyle = 'rgba(60,15,8,0.7)';
+    g.lineWidth = Math.max(1, s * 0.025);
+    g.beginPath(); g.arc(cx, cy, r * 0.72, 0, Math.PI * 2); g.stroke();
+    // крышка-пробка и знак огня
+    g.fillStyle = '#c9cdd1';
+    g.beginPath(); g.arc(cx + r * 0.42, cy - r * 0.38, r * 0.13, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#f2c230';
+    g.beginPath();
+    g.moveTo(cx, cy - r * 0.42);
+    g.lineTo(cx + r * 0.36, cy + r * 0.26);
+    g.lineTo(cx - r * 0.36, cy + r * 0.26);
+    g.closePath();
+    g.fill();
+    g.fillStyle = '#2a2a26';
+    g.font = `bold ${Math.round(s * 0.2)}px system-ui, sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText('!', cx, cy + r * 0.04);
+    if (this.world.theme === 'winter') {
+      g.fillStyle = 'rgba(250,252,255,0.9)';
+      g.beginPath(); g.ellipse(cx - r * 0.3, cy - r * 0.55, r * 0.4, r * 0.18, -0.3, 0, Math.PI * 2); g.fill();
+    }
   }
 
   // ---------- динамика ----------
   drawWater(ctx, x0, y0, s, now, tx, ty) {
-    // илистый берег
-    ctx.fillStyle = '#5a5136';
+    const th = this.world.theme;
+    ctx.fillStyle = th === 'desert' ? '#8c7a4a' : th === 'city' ? '#4a4c4e' : '#5a5136';
     rr(ctx, x0 + s * 0.01, y0 + s * 0.01, s * 0.98, s * 0.98, s * 0.2);
     ctx.fill();
-    ctx.fillStyle = '#48512f';
+    ctx.fillStyle = th === 'desert' ? '#6f7a3c' : th === 'city' ? '#3a3c3e' : '#48512f';
     rr(ctx, x0 + s * 0.05, y0 + s * 0.05, s * 0.9, s * 0.9, s * 0.2);
     ctx.fill();
-    // вода
     const g = ctx.createRadialGradient(x0 + s * 0.5, y0 + s * 0.5, s * 0.05, x0 + s * 0.5, y0 + s * 0.5, s * 0.55);
-    g.addColorStop(0, '#1f4755');
-    g.addColorStop(1, '#356a78');
+    g.addColorStop(0, th === 'desert' ? '#1c5f66' : '#1f4755');
+    g.addColorStop(1, th === 'desert' ? '#3a8a8a' : '#356a78');
     ctx.fillStyle = g;
     rr(ctx, x0 + s * 0.1, y0 + s * 0.1, s * 0.8, s * 0.8, s * 0.18);
     ctx.fill();
-    // рябь
     ctx.strokeStyle = 'rgba(190,225,235,0.3)';
     ctx.lineWidth = 1.2;
     for (let k = 0; k < 3; k++) {
@@ -376,33 +565,94 @@ export class Renderer {
       ctx.quadraticCurveTo(x0 + s * 0.5 + sh, yy - s * 0.06, x0 + s * 0.78 + sh, yy);
       ctx.stroke();
     }
-    // блики
     const tw = 0.5 + 0.5 * Math.sin(now / 300 + tx * 3 + ty);
     ctx.fillStyle = `rgba(255,255,255,${0.25 + tw * 0.4})`;
     ctx.fillRect(x0 + s * (0.3 + hash(tx, ty) * 0.3), y0 + s * 0.36, Math.max(1.5, s * 0.05), 1.5);
     ctx.fillRect(x0 + s * (0.45 + hash(ty, tx) * 0.2), y0 + s * 0.62, Math.max(1.5, s * 0.04), 1.5);
-    // камыши
-    ctx.strokeStyle = '#5d7a35';
-    ctx.lineWidth = Math.max(1, s * 0.03);
-    ctx.beginPath();
-    for (let i = 0; i < 5; i++) {
-      const a = hash(tx * 3 + i, ty * 7), sway = Math.sin(now / 700 + i + tx) * s * 0.02;
-      const bx = x0 + s * (0.12 + a * 0.2), by = y0 + s * (0.86 - i * 0.03);
-      ctx.moveTo(bx, by);
-      ctx.lineTo(bx + sway + (i - 2) * s * 0.012, by - s * (0.16 + a * 0.12));
+    if (th !== 'city') {
+      ctx.strokeStyle = '#5d7a35';
+      ctx.lineWidth = Math.max(1, s * 0.03);
+      ctx.beginPath();
+      for (let i = 0; i < 5; i++) {
+        const a = hash(tx * 3 + i, ty * 7), sway = Math.sin(now / 700 + i + tx) * s * 0.02;
+        const bx = x0 + s * (0.12 + a * 0.2), by = y0 + s * (0.86 - i * 0.03);
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + sway + (i - 2) * s * 0.012, by - s * (0.16 + a * 0.12));
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
-    ctx.fillStyle = '#6b4a2a';
-    ctx.fillRect(x0 + s * 0.2, y0 + s * 0.58, Math.max(1.5, s * 0.04), s * 0.08);
   }
 
-  // Куст/дерево: тень, три яруса листвы, блики, лёгкое покачивание.
+  // Укрытие: куст (поле), маскировочная сеть (город), ель (зима), сухой кустарник (пустыня).
   drawBush(ctx, x0, y0, s, tx, ty, alpha, now = 0) {
+    const th = this.world.theme;
     ctx.globalAlpha = alpha * 0.35;
     ctx.fillStyle = '#000';
     ctx.beginPath(); ctx.ellipse(x0 + s * 0.58, y0 + s * 0.62, s * 0.5, s * 0.42, 0, 0, Math.PI * 2); ctx.fill();
     ctx.globalAlpha = alpha;
-    const tiers = [['#263a17', 0.3, 7], ['#365220', 0.24, 6], ['#4a6b2c', 0.17, 5]];
+
+    if (th === 'city') {
+      // натянутая маскировочная сеть на шестах
+      ctx.fillStyle = '#4d5a33';
+      rr(ctx, x0 + s * 0.02, y0 + s * 0.04, s * 0.96, s * 0.92, s * 0.08);
+      ctx.fill();
+      ctx.save();
+      rr(ctx, x0 + s * 0.02, y0 + s * 0.04, s * 0.96, s * 0.92, s * 0.08);
+      ctx.clip();
+      const cols = ['#6b6a3c', '#3a4426', '#7a6a44', '#56643a'];
+      for (let i = 0; i < 9; i++) {
+        ctx.fillStyle = cols[i % cols.length];
+        const a = hash(tx * 5 + i, ty * 9), b = hash(tx * 13, ty * 3 + i);
+        ctx.beginPath(); ctx.ellipse(x0 + s * a, y0 + s * b, s * 0.2, s * 0.12, a * 3, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.strokeStyle = 'rgba(30,30,20,0.55)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let k = -1; k < 7; k++) {
+        ctx.moveTo(x0 + k * s * 0.17, y0); ctx.lineTo(x0 + k * s * 0.17 + s * 0.5, y0 + s);
+        ctx.moveTo(x0 + k * s * 0.17 + s * 0.5, y0); ctx.lineTo(x0 + k * s * 0.17, y0 + s);
+      }
+      ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = '#2a2a22';
+      for (const [a, b] of [[0.12, 0.14], [0.88, 0.14], [0.12, 0.86], [0.88, 0.86]]) {
+        ctx.beginPath(); ctx.arc(x0 + s * a, y0 + s * b, s * 0.04, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    if (th === 'winter') {
+      // ель сверху: звёздчатые ярусы и снег
+      const cx = x0 + s * 0.5, cy = y0 + s * 0.5;
+      const tiers = [[0.48, '#1f3a26'], [0.36, '#2a4c32'], [0.24, '#36603f']];
+      for (const [r, col] of tiers) {
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        const pts = 9;
+        for (let i = 0; i < pts * 2; i++) {
+          const a = (i / (pts * 2)) * Math.PI * 2 + hash(tx, ty) + Math.sin(now / 1200 + tx) * 0.02;
+          const rad = (i % 2 ? r * 0.62 : r) * s;
+          ctx.lineTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.fillStyle = 'rgba(250,252,255,0.9)';
+      for (let i = 0; i < 9; i++) {
+        const a = hash(tx * 7 + i, ty * 3) * Math.PI * 2, d = s * (0.08 + hash(tx + i, ty * 5) * 0.32);
+        ctx.beginPath(); ctx.arc(cx + Math.cos(a) * d, cy + Math.sin(a) * d, s * 0.045, 0, Math.PI * 2); ctx.fill();
+      }
+      ctx.fillStyle = '#5a3d22';
+      ctx.beginPath(); ctx.arc(cx, cy, s * 0.04, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+      return;
+    }
+
+    const desert = th === 'desert';
+    const tiers = desert
+      ? [['#6b5a2e', 0.26, 7], ['#7d6b38', 0.2, 6], ['#8f7d44', 0.13, 5]]
+      : [['#263a17', 0.3, 7], ['#365220', 0.24, 6], ['#4a6b2c', 0.17, 5]];
     tiers.forEach(([col, rad, n], ti) => {
       ctx.fillStyle = col;
       for (let i = 0; i < n; i++) {
@@ -413,17 +663,84 @@ export class Renderer {
         ctx.beginPath(); ctx.arc(cx, cy, s * (rad + a * 0.08), 0, Math.PI * 2); ctx.fill();
       }
     });
-    ctx.fillStyle = 'rgba(150,185,95,0.6)';
-    for (let i = 0; i < 7; i++) {
-      const a = hash(tx + i * 3, ty * 17), b = hash(tx * 19, ty + i);
-      ctx.beginPath(); ctx.arc(x0 + s * (0.2 + a * 0.55), y0 + s * (0.16 + b * 0.55), s * 0.045, 0, Math.PI * 2); ctx.fill();
-    }
-    if (hash(tx * 41, ty * 43) < 0.35) { // ягоды
-      ctx.fillStyle = '#b8402f';
-      for (let i = 0; i < 4; i++) {
-        const a = hash(tx * 2 + i, ty * 23), b = hash(tx * 29, ty * 2 + i);
-        ctx.beginPath(); ctx.arc(x0 + s * (0.25 + a * 0.5), y0 + s * (0.25 + b * 0.5), s * 0.025, 0, Math.PI * 2); ctx.fill();
+    if (desert) {
+      // сухие ветки
+      ctx.strokeStyle = 'rgba(70,52,28,0.8)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = hash(tx * 3 + i, ty * 13) * Math.PI * 2;
+        ctx.moveTo(x0 + s * 0.5, y0 + s * 0.5);
+        ctx.lineTo(x0 + s * 0.5 + Math.cos(a) * s * 0.42, y0 + s * 0.5 + Math.sin(a) * s * 0.42);
       }
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = 'rgba(150,185,95,0.6)';
+      for (let i = 0; i < 7; i++) {
+        const a = hash(tx + i * 3, ty * 17), b = hash(tx * 19, ty + i);
+        ctx.beginPath(); ctx.arc(x0 + s * (0.2 + a * 0.55), y0 + s * (0.16 + b * 0.55), s * 0.045, 0, Math.PI * 2); ctx.fill();
+      }
+      if (hash(tx * 41, ty * 43) < 0.35) {
+        ctx.fillStyle = '#b8402f';
+        for (let i = 0; i < 4; i++) {
+          const a = hash(tx * 2 + i, ty * 23), b = hash(tx * 29, ty * 2 + i);
+          ctx.beginPath(); ctx.arc(x0 + s * (0.25 + a * 0.5), y0 + s * (0.25 + b * 0.5), s * 0.025, 0, Math.PI * 2); ctx.fill();
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // Рисунок камуфляжа внутри уже заданной области обрезки (центр в 0,0).
+  paintCamo(ctx, info, pattern, w, h, s, seed) {
+    if (pattern === 'stripes') {
+      ctx.strokeStyle = info.camo;
+      ctx.lineWidth = Math.max(1.5, s * 0.05);
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      for (let i = -3; i <= 3; i++) {
+        const y = i * h * 0.15;
+        ctx.moveTo(-w / 2, y + h * 0.04);
+        ctx.lineTo(-w * 0.15, y - h * 0.03);
+        ctx.lineTo(w * 0.1, y + h * 0.05);
+        ctx.lineTo(w / 2, y - h * 0.02);
+      }
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      return;
+    }
+    if (pattern === 'digital') {
+      const cell = Math.max(2, s * 0.07);
+      for (let y = -h / 2; y < h / 2; y += cell) for (let x = -w / 2; x < w / 2; x += cell) {
+        const v = hash(Math.round(x / cell) + seed * 31, Math.round(y / cell) + seed * 17);
+        if (v < 0.22) ctx.fillStyle = info.camo;
+        else if (v < 0.36 && info.camo2) ctx.fillStyle = info.camo2;
+        else continue;
+        ctx.globalAlpha = 0.75;
+        ctx.fillRect(x, y, cell, cell);
+      }
+      ctx.globalAlpha = 1;
+      return;
+    }
+    if (pattern === 'shine') {
+      const g = ctx.createLinearGradient(-w / 2, -h / 2, w / 2, h / 2);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(0.45, 'rgba(255,250,210,0.55)');
+      g.addColorStop(0.55, 'rgba(255,250,210,0.55)');
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(-w / 2, -h / 2, w, h);
+      return;
+    }
+    // blobs
+    const cols = info.camo2 ? [info.camo, info.camo2] : [info.camo];
+    ctx.globalAlpha = 0.5;
+    for (let i = 0; i < 5; i++) {
+      const a = hash(seed * 7 + i, 3), b = hash(seed * 11, i + 5), c = hash(i, seed + 9);
+      ctx.fillStyle = cols[i % cols.length];
+      ctx.beginPath();
+      ctx.ellipse((a - 0.5) * w, (b - 0.5) * h, s * (0.1 + c * 0.1), s * (0.06 + a * 0.07), c * 3, 0, Math.PI * 2);
+      ctx.fill();
     }
     ctx.globalAlpha = 1;
   }
@@ -442,7 +759,10 @@ export class Renderer {
   }
 
   drawTank(ctx, t, s, dead) {
-    const info = TANK_INFO[t.id];
+    const base = TANK_INFO[t.id] || TANK_INFO[0];
+    const skin = t.skin && SKINS[t.skin];
+    const info = skin ? { ...base, ...skin, mark: base.mark } : base;
+    const pattern = skin ? skin.pattern : 'blobs';
     const px = (t.x + 0.5) * s, py = (t.y + 0.5) * s;
     const body = dead ? '#302d29' : info.body;
     const dark = dead ? '#1b1917' : info.dark;
@@ -532,17 +852,7 @@ export class Renderer {
     ctx.save();
     this.hullPath(ctx, fx, fy, ch);
     ctx.clip();
-    if (!dead) {
-      ctx.fillStyle = camo;
-      ctx.globalAlpha = 0.5;
-      for (let i = 0; i < 4; i++) {
-        const a = hash(t.id * 7 + i, 3), b = hash(t.id * 11, i + 5), c = hash(i, t.id + 9);
-        ctx.beginPath();
-        ctx.ellipse((a - 0.5) * hw, (b - 0.5) * hl, s * (0.1 + c * 0.1), s * (0.06 + a * 0.07), c * 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      ctx.globalAlpha = 1;
-    }
+    if (!dead) this.paintCamo(ctx, info, pattern, hw, hl, s, t.id);
     // лобовой лист
     ctx.fillStyle = 'rgba(255,255,255,0.13)';
     ctx.fillRect(-fx, -fy, hw, ch + 0.07 * s);
@@ -640,12 +950,14 @@ export class Renderer {
       ctx.save();
       rr(ctx, -tur / 2, -tur / 2, tur, tur * 1.14, Math.min(tr, tur / 2));
       ctx.clip();
-      ctx.fillStyle = camo;
-      ctx.globalAlpha = 0.45;
-      ctx.beginPath();
-      ctx.ellipse(tur * 0.18, tur * 0.28, tur * 0.34, tur * 0.2, 0.6 + t.id, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.globalAlpha = 1;
+      if (pattern === 'blobs') {
+        ctx.fillStyle = camo;
+        ctx.globalAlpha = 0.45;
+        ctx.beginPath();
+        ctx.ellipse(tur * 0.18, tur * 0.28, tur * 0.34, tur * 0.2, 0.6 + t.id, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      } else this.paintCamo(ctx, info, pattern, tur, tur * 1.14, s * 0.6, t.id + 5);
       // опознавательная полоса
       ctx.fillStyle = info.mark;
       ctx.fillRect(-tur / 2, tur * 0.42, tur, 0.04 * s);
@@ -698,9 +1010,31 @@ export class Renderer {
   }
 
   drawMine(ctx, m, s, now) {
+    if (m.barrel) return; // горящая бочка — это эффект взрыва, мину не рисуем
     const cx = (m.x + 0.5) * s, cy = (m.y + 0.5) * s, r = s * 0.25;
     ctx.fillStyle = 'rgba(0,0,0,0.32)';
     ctx.beginPath(); ctx.arc(cx + s * 0.05, cy + s * 0.07, r, 0, Math.PI * 2); ctx.fill();
+    if (m.remote) {
+      // радиомина: квадратный корпус, антенна, синий огонёк
+      ctx.fillStyle = '#3b3f4a';
+      rr(ctx, cx - r, cy - r, r * 2, r * 2, r * 0.3);
+      ctx.fill();
+      ctx.strokeStyle = '#15171c';
+      ctx.lineWidth = Math.max(1, s * 0.035);
+      ctx.stroke();
+      ctx.fillStyle = '#5a5f6e';
+      rr(ctx, cx - r * 0.6, cy - r * 0.6, r * 1.2, r * 1.2, r * 0.2);
+      ctx.fill();
+      ctx.strokeStyle = '#c9cdd1';
+      ctx.lineWidth = Math.max(1, s * 0.025);
+      ctx.beginPath(); ctx.moveTo(cx + r * 0.5, cy - r * 0.5); ctx.lineTo(cx + r * 1.1, cy - r * 1.3); ctx.stroke();
+      const on = (now % 900) < 300;
+      ctx.fillStyle = on ? '#4fc3ff' : '#18445a';
+      if (on) { ctx.shadowColor = '#4fc3ff'; ctx.shadowBlur = 10; }
+      ctx.beginPath(); ctx.arc(cx, cy, r * 0.26, 0, Math.PI * 2); ctx.fill();
+      ctx.shadowBlur = 0;
+      return;
+    }
     // взрыватели-рожки
     ctx.strokeStyle = '#191b12';
     ctx.lineWidth = Math.max(1.5, s * 0.06);
@@ -839,8 +1173,23 @@ export class Renderer {
         this.burst(P(e.x), P(e.y), 8, 'spark', { speed: s * 7, size: 2, life: 0.35, color: '#ffe9a0', drag: 5 });
         this.burst(P(e.x), P(e.y), 6, 'fire', { speed: s * 0.5, size: s * 0.07, grow: -s * 0.03, life: 1.4, color: '#ff8a2a', spread: s * 0.8, drag: 1 });
         this.crater(P(e.x), P(e.y), s * 0.34);
-        this.flash = Math.min(0.5, (this.flash || 0) + 0.22);
-        this.shake = Math.min(14, this.shake + 7);
+        if (e.barrel) {
+          // горящее топливо: больше огня и чёрный дым
+          this.burst(P(e.x), P(e.y), 16, 'fire', { speed: s * 2.4, size: s * 0.45, grow: -s * 0.45, life: 0.7, color: '#ff7a1a', spread: s * 0.3 });
+          this.burst(P(e.x), P(e.y), 10, 'smoke', { speed: s * 0.9, size: s * 0.3, grow: s * 0.6, life: 1.6, color: '25,22,20', spread: s * 0.4 });
+          this.oil(P(e.x), P(e.y), s * 0.8);
+        }
+        this.flash = Math.min(0.5, (this.flash || 0) + (e.barrel ? 0.32 : 0.22));
+        this.shake = Math.min(14, this.shake + (e.barrel ? 9 : 7));
+      } else if (e.type === 'barrel') {
+        this.burst(P(e.x), P(e.y), 8, 'debris', { speed: s * 4, size: s * 0.08, life: 0.7, color: '#8a2418', drag: 3 });
+      } else if (e.type === 'shieldHit') {
+        this.spawn('ring', P(e.x), P(e.y), { size: s * 0.3, grow: s * 2, life: 0.3, color: '#7fd4ff' });
+        this.burst(P(e.x), P(e.y), 8, 'spark', { speed: s * 4, size: 2, life: 0.25, color: '#bfeaff', drag: 6 });
+      } else if (e.type === 'detonate') {
+        this.spawn('ring', P(e.x), P(e.y), { size: s * 0.2, grow: s * 1.6, life: 0.3, color: '#4fc3ff' });
+      } else if (e.type === 'slide') {
+        this.burst(P(e.x), P(e.y), 6, 'smoke', { speed: s * 1.2, size: s * 0.06, grow: s * 0.25, life: 0.5, color: '235,245,255' });
       } else if (e.type === 'dead') {
         this.burst(P(e.x), P(e.y), 22, 'fire', { speed: s * 2.2, size: s * 0.4, grow: -s * 0.5, life: 0.6, color: '#ffa53a', spread: s * 0.4 });
         this.burst(P(e.x), P(e.y), 14, 'smoke', { speed: s * 1, size: s * 0.35, grow: s * 1.2, life: 2, color: '40,38,35', spread: s * 0.5 });
@@ -963,8 +1312,9 @@ export class Renderer {
     for (const p of this.parts) {
       const a = Math.max(0, p.life / p.max);
       if (p.kind === 'smoke') {
+        // дым не разрастается больше клетки, иначе закрывает поле тёмными пятнами
         ctx.fillStyle = `rgba(${p.color},${a * 0.45})`;
-        ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(p.x, p.y, Math.min(p.size, this.ts * 0.9), 0, Math.PI * 2); ctx.fill();
       } else if (p.kind === 'fire') {
         ctx.globalAlpha = a;
         ctx.fillStyle = a > 0.6 ? '#fff0a8' : p.color;
@@ -1077,6 +1427,20 @@ export class Renderer {
     for (const m of w.mines) this.drawMine(ctx, m, s, now);
     for (const t of w.tanks) if (!t.alive) this.drawTank(ctx, t, s, true);
     for (const t of w.tanks) if (t.alive) this.drawTank(ctx, t, s, false);
+    // щит: прозрачный пузырь, мигает перед окончанием
+    for (const t of w.tanks) {
+      if (!t.alive || !(t.shield > 0)) continue;
+      if (t.shield < 1 && (now % 200) < 100) continue;
+      const px = (t.x + 0.5) * s, py = (t.y + 0.5) * s, r = s * (0.62 + Math.sin(now / 150) * 0.02);
+      const g = ctx.createRadialGradient(px, py, r * 0.6, px, py, r);
+      g.addColorStop(0, 'rgba(120,210,255,0.05)');
+      g.addColorStop(1, 'rgba(120,210,255,0.35)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(170,230,255,0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    }
 
     for (const sh of w.shells) {
       const px = (sh.x + 0.5) * s, py = (sh.y + 0.5) * s;

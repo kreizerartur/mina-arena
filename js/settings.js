@@ -3,7 +3,7 @@ const KEY = 'mina-arena-settings';
 
 export const STICK_SIZES = { m: 140, l: 170, xl: 200 };
 
-export const settings = { hand: 'right', stick: 'l', sound: true, vibro: true };
+export const settings = { hand: 'right', stick: 'l', sound: true, vibro: true, difficulty: 'normal' };
 
 try {
   const s = JSON.parse(localStorage.getItem(KEY));
@@ -12,6 +12,7 @@ try {
     if (s.stick in STICK_SIZES) settings.stick = s.stick;
     if (typeof s.sound === 'boolean') settings.sound = s.sound;
     if (typeof s.vibro === 'boolean') settings.vibro = s.vibro;
+    if (['easy', 'normal', 'hard'].includes(s.difficulty)) settings.difficulty = s.difficulty;
   }
 } catch (e) { /* хранилище недоступно — берём значения по умолчанию */ }
 
