@@ -66,13 +66,15 @@ html, body {
   font-size: 14px;
 }
 #timer.warn { color: #ff7a66; }
-#btnSound {
+#btnMenu {
   background: var(--panel);
   border: none;
   border-radius: 8px;
   color: var(--text);
   font-size: 16px;
-  padding: 4px 8px;
+  padding: 4px 10px;
+  min-width: 40px;
+  min-height: 32px;
   cursor: pointer;
 }
 
@@ -102,40 +104,86 @@ canvas { display: block; touch-action: none; }
 #banner small { display: block; font-size: 13px; font-weight: 500; color: var(--muted); margin-top: 4px; }
 #banner.small { top: 12%; font-size: 15px; padding: 8px 14px; }
 
-#controls {
-  height: 160px;
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 18px calc(10px + env(safe-area-inset-bottom));
-  touch-action: none;
+/* Размеры пульта задаёт main.js через переменные --stick, --fire, --mine, --btnsW, --ctrlH */
+#app {
+  --stick: 170px;
+  --fire: 104px;
+  --mine: 80px;
+  --btnsW: 170px;
+  --ctrlH: 192px;
 }
 
+#controls {
+  height: calc(var(--ctrlH) + env(safe-area-inset-bottom));
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 4px 12px calc(6px + env(safe-area-inset-bottom));
+  touch-action: none;
+  position: relative;
+}
+#app.lefty #controls { flex-direction: row-reverse; }
+
+/* Зона джойстика: вся левая часть пульта (у левши — правая), не только круг */
+#stickZone {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  touch-action: none;
+  min-width: 0;
+}
+#app.lefty #stickZone { justify-content: flex-end; }
+
 #stick {
-  width: 128px;
-  height: 128px;
+  width: var(--stick);
+  height: var(--stick);
+  flex: 0 0 auto;
   border-radius: 50%;
-  background: radial-gradient(circle, #2f3328 0%, #24271f 70%);
-  border: 2px solid #3f4435;
+  background: radial-gradient(circle, #343a2c 0%, #262a20 62%, #1f2219 100%);
+  border: 2px solid #4a5040;
+  box-shadow: inset 0 0 0 calc(var(--stick) * 0.17) rgba(0, 0, 0, 0.12);
   position: relative;
   touch-action: none;
+  transition: border-color 0.1s;
 }
+#stick.on { border-color: #a9bd6e; }
+#stick .arr {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border: calc(var(--stick) * 0.055) solid transparent;
+  opacity: 0.45;
+}
+#stick .arr.u { left: 50%; top: 6%; transform: translateX(-50%); border-bottom-color: #c9cfb5; border-top-width: 0; }
+#stick .arr.d { left: 50%; bottom: 6%; transform: translateX(-50%); border-top-color: #c9cfb5; border-bottom-width: 0; }
+#stick .arr.l { top: 50%; left: 6%; transform: translateY(-50%); border-right-color: #c9cfb5; border-left-width: 0; }
+#stick .arr.r { top: 50%; right: 6%; transform: translateY(-50%); border-left-color: #c9cfb5; border-right-width: 0; }
+#stick .arr.lit { opacity: 1; border-bottom-color: var(--accent); }
+#stick .arr.d.lit { border-bottom-color: transparent; border-top-color: var(--accent); }
+#stick .arr.l.lit { border-bottom-color: transparent; border-right-color: var(--accent); }
+#stick .arr.r.lit { border-bottom-color: transparent; border-left-color: var(--accent); }
 #knob {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 54px;
-  height: 54px;
-  margin: -27px 0 0 -27px;
+  width: calc(var(--stick) * 0.42);
+  height: calc(var(--stick) * 0.42);
+  margin: calc(var(--stick) * -0.21) 0 0 calc(var(--stick) * -0.21);
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #6d7559, #454b38);
+  background: radial-gradient(circle at 35% 35%, #7c8565, #4b5240);
   border: 2px solid #23261d;
-  transition: transform 0.06s;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.45);
 }
 
-#btns { display: flex; align-items: center; gap: 14px; }
+#btns {
+  position: relative;
+  width: var(--btnsW);
+  flex: 0 0 auto;
+}
 #btns button {
+  position: absolute;
   border: none;
   border-radius: 50%;
   color: #fff;
@@ -148,19 +196,71 @@ canvas { display: block; touch-action: none; }
   font-family: inherit;
 }
 #btns button small { font-size: 9px; opacity: 0.6; margin-top: 2px; font-weight: 500; }
-#btnMine {
-  width: 76px; height: 76px;
-  background: radial-gradient(circle at 35% 35%, #8a6a2c, #5b4519);
-  border: 2px solid #3a2c10;
-  font-size: 12px;
-}
 #btnFire {
-  width: 96px; height: 96px;
+  width: var(--fire); height: var(--fire);
+  right: 0;
+  bottom: 4px;
   background: radial-gradient(circle at 35% 35%, #b5533f, #7a2e22);
   border: 2px solid #4a1a12;
   font-size: 14px;
 }
+#btnMine {
+  width: var(--mine); height: var(--mine);
+  right: calc(var(--fire) * 0.84);
+  bottom: calc(var(--fire) * 0.66 + 4px);
+  background: radial-gradient(circle at 35% 35%, #8a6a2c, #5b4519);
+  border: 2px solid #3a2c10;
+  font-size: 12px;
+}
+#app.lefty #btnFire { right: auto; left: 0; }
+#app.lefty #btnMine { right: auto; left: calc(var(--fire) * 0.84); }
 #btns button.down { transform: scale(0.93); filter: brightness(1.25); }
+
+/* После гибели танка пульт гаснет, поверх — кнопка «Пропустить раунд» */
+#controls.dead #stickZone,
+#controls.dead #btns { opacity: 0.2; pointer-events: none; }
+#btnSkip {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -60%);
+  width: min(320px, calc(100% - 32px));
+  padding: 16px 20px;
+  border: 2px solid #8a7a3a;
+  border-radius: 16px;
+  background: linear-gradient(#3a3a2a, #2a2a1e);
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+#btnSkip small { font-size: 12px; color: var(--muted); font-weight: 500; }
+#btnSkip:active { transform: translate(-50%, -60%) scale(0.97); }
+
+/* Экран настроек оставляет пульт видимым, чтобы сразу видеть изменения */
+#screen.settings { bottom: calc(var(--ctrlH) + env(safe-area-inset-bottom)); }
+.set { width: 100%; max-width: 420px; text-align: left; margin: 8px 0 6px; }
+.set > span { display: block; font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+.set small { display: block; color: var(--muted); font-size: 12px; margin-top: 5px; }
+.seg { display: flex; gap: 6px; }
+.seg button {
+  flex: 1;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 6px;
+  border-radius: 10px;
+  border: 1.5px solid #4d5240;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.seg button.on { background: var(--accent); color: #1d1a0e; border-color: var(--accent); }
 
 .hidden { display: none !important; }
 

@@ -4,6 +4,7 @@ import { botThink } from './ai.js';
 import { Renderer } from './render.js';
 import { Sound } from './sound.js';
 import { Progress } from './progress.js';
+import { settings, saveSettings, STICK_SIZES } from './settings.js';
 
 const $ = id => document.getElementById(id);
 const WINS_TO_MATCH = 3;
@@ -22,14 +23,39 @@ if (inTG) {
   } catch (e) { /* старые клиенты */ }
 }
 function haptic(kind) {
-  if (!inTG) return;
+  if (!inTG || !settings.vibro) return;
   try { tg.HapticFeedback.impactOccurred(kind); } catch (e) { /* нет вибро */ }
+}
+function hapticTick() {
+  if (!inTG || !settings.vibro) return;
+  try { tg.HapticFeedback.selectionChanged(); } catch (e) { /* нет вибро */ }
 }
 
 const renderer = new Renderer($('cv'));
 const sound = new Sound();
-window.addEventListener('resize', () => renderer.resize());
-if (inTG && tg.onEvent) tg.onEvent('viewportChanged', () => renderer.resize());
+sound.on = settings.sound;
+
+// Размеры пульта: джойстик по настройке, кнопки — по оставшемуся месту.
+function applyLayout() {
+  const app = $('app'), ctrl = $('controls');
+  app.classList.toggle('lefty', settings.hand === 'left');
+  const avail = Math.max(240, ctrl.clientWidth - 24);
+  const stickPx = Math.round(Math.min(STICK_SIZES[settings.stick] || 170, avail * 0.56));
+  const wb = avail - stickPx - 8;
+  const fire = Math.round(Math.min(110, wb * 0.62));
+  const mine = Math.round(Math.min(84, wb * 0.46));
+  const btnsW = Math.round(fire * 0.84 + mine + 2);
+  const ctrlH = Math.round(Math.max(stickPx, fire * 0.66 + 4 + mine) + 14);
+  const st = app.style;
+  st.setProperty('--stick', stickPx + 'px');
+  st.setProperty('--fire', fire + 'px');
+  st.setProperty('--mine', mine + 'px');
+  st.setProperty('--btnsW', btnsW + 'px');
+  st.setProperty('--ctrlH', ctrlH + 'px');
+}
+function onResize() { applyLayout(); renderer.resize(); }
+window.addEventListener('resize', onResize);
+if (inTG && tg.onEvent) tg.onEvent('viewportChanged', onResize);
 
 // ---------- Ввод ----------
 const input = { held: [], stickDir: -1, keyFire: false, touchFire: false, mineReq: false };
@@ -49,43 +75,69 @@ window.addEventListener('keyup', e => {
 });
 window.addEventListener('blur', () => { input.held = []; input.keyFire = false; input.touchFire = false; });
 
-const stick = $('stick'), knob = $('knob');
+// Джойстик: нажимать можно в любом месте своей половины пульта, направление
+// считается от центра круга. Стрелка нужного направления подсвечивается.
+const stickZone = $('stickZone'), stick = $('stick'), knob = $('knob');
+const arrows = [...stick.querySelectorAll('.arr')]; // u, r, d, l — совпадает с направлениями 0..3
 let stickId = null;
+function setStickDir(d) {
+  if (d === input.stickDir) return;
+  input.stickDir = d;
+  arrows.forEach((a, i) => a.classList.toggle('lit', i === d));
+  if (d >= 0) hapticTick();
+}
 function stickMove(e) {
   const r = stick.getBoundingClientRect();
   const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
-  const len = Math.hypot(dx, dy), max = r.width / 2 - 20;
+  const len = Math.hypot(dx, dy), max = r.width * 0.32;
   const k = len > max ? max / len : 1;
   knob.style.transform = `translate(${dx * k}px, ${dy * k}px)`;
-  if (len < 14) input.stickDir = -1;
-  else if (Math.abs(dx) > Math.abs(dy)) input.stickDir = dx > 0 ? 1 : 3;
-  else input.stickDir = dy > 0 ? 2 : 0;
+  const dead = r.width * 0.09;
+  if (len < dead) setStickDir(-1);
+  else if (Math.abs(dx) > Math.abs(dy)) setStickDir(dx > 0 ? 1 : 3);
+  else setStickDir(dy > 0 ? 2 : 0);
 }
-stick.addEventListener('pointerdown', e => {
+stickZone.addEventListener('pointerdown', e => {
+  if (stickId !== null) return;
   stickId = e.pointerId;
-  stick.setPointerCapture(e.pointerId);
+  try { stickZone.setPointerCapture(e.pointerId); } catch (err) { /* без захвата тоже работает */ }
+  stick.classList.add('on');
   stickMove(e);
   sound.init();
 });
-stick.addEventListener('pointermove', e => { if (e.pointerId === stickId) stickMove(e); });
+stickZone.addEventListener('pointermove', e => { if (e.pointerId === stickId) stickMove(e); });
 function stickEnd(e) {
   if (e.pointerId !== stickId) return;
   stickId = null;
-  input.stickDir = -1;
+  setStickDir(-1);
+  stick.classList.remove('on');
   knob.style.transform = '';
 }
-stick.addEventListener('pointerup', stickEnd);
-stick.addEventListener('pointercancel', stickEnd);
+stickZone.addEventListener('pointerup', stickEnd);
+stickZone.addEventListener('pointercancel', stickEnd);
+stickZone.addEventListener('contextmenu', e => e.preventDefault());
 
 function holdButton(el, on, off) {
-  el.addEventListener('pointerdown', e => { el.setPointerCapture(e.pointerId); el.classList.add('down'); on(); sound.init(); });
+  el.addEventListener('pointerdown', e => {
+    try { el.setPointerCapture(e.pointerId); } catch (err) { /* без захвата тоже работает */ }
+    el.classList.add('down'); on(); sound.init();
+  });
   const end = () => { el.classList.remove('down'); off(); };
   el.addEventListener('pointerup', end);
   el.addEventListener('pointercancel', end);
 }
 holdButton($('btnFire'), () => { input.touchFire = true; }, () => { input.touchFire = false; });
 holdButton($('btnMine'), () => { input.mineReq = true; haptic('light'); }, () => {});
-for (const el of [stick, $('btnFire'), $('btnMine')]) el.addEventListener('contextmenu', e => e.preventDefault());
+for (const el of [$('btnFire'), $('btnMine')]) el.addEventListener('contextmenu', e => e.preventDefault());
+
+function resetInput() {
+  input.held = []; input.keyFire = false; input.touchFire = false; input.mineReq = false;
+  setStickDir(-1);
+  knob.style.transform = '';
+  stick.classList.remove('on');
+  stickId = null;
+  for (const b of [$('btnFire'), $('btnMine')]) b.classList.remove('down');
+}
 
 function applyInput(p) {
   p.want = input.held.length ? input.held[input.held.length - 1] : input.stickDir;
@@ -104,6 +156,16 @@ let lastBeep = 0;
 let playerDownShown = false;
 let botModels = ['lynx', 'lynx', 'lynx'];
 let matchKills = 0;
+let paused = false;
+
+function menuIcon() {
+  $('btnMenu').textContent = paused ? '▶' : (world && phase !== 'menu' ? '⏸' : '⚙');
+}
+
+function setDeadControls(on) {
+  $('controls').classList.toggle('dead', on);
+  $('btnSkip').classList.toggle('hidden', !on);
+}
 
 const progress = new Progress(tg);
 
@@ -118,24 +180,111 @@ function modelStats(m) {
     statBar('Огонь', 0.45 / m.reload) + statBar('Мины', (m.mines + m.range - 2) / 3);
 }
 
+function showScreen(html, cls = '') {
+  const s = $('screen');
+  s.innerHTML = html;
+  s.className = 'overlay' + (cls ? ' ' + cls : '');
+  s.scrollTop = 0;
+}
+
 function showMenu() {
   phase = 'menu';
+  paused = false;
+  world = null;
   hideBanner();
+  setDeadControls(false);
+  resetInput();
+  renderScore();
+  menuIcon();
   const d = progress.data, m = MODELS[d.selected];
-  $('screen').innerHTML = `
+  const handTxt = settings.hand === 'left' ? 'джойстик справа, кнопки слева' : 'джойстик слева, кнопки справа';
+  showScreen(`
     <h1>Минная арена</h1>
     <p class="sub">Прототип · танки и мины</p>
     <div class="coins"><i class="coin"></i> ${d.coins}</div>
     <div class="card sel"><div class="ch"><b>${m.name}</b><small>${m.desc}</small></div>${modelStats(m)}</div>
     <button data-act="start" class="big">В бой</button>
     <button data-act="garage" class="mid">Гараж</button>
+    <button data-act="settings" class="mid">Настройки</button>
     <div class="how">
       <p><b>Пушка</b> бьёт по прямой. <b>Мина</b> взрывается через 2,5 с крестом и задевает всех, вас тоже.</p>
       <p><b>Уровни в бою:</b> попадание даёт ★, уничтожение — ★★★. ${LEVELS.slice(1).map(l => `${l.name} (${l.stars}★): ${l.perk}`).join('; ')}.</p>
       <p>С 70-й секунды арена сжимается — уходите с красных клеток.</p>
-      <p class="keys">Телефон: джойстик слева, кнопки справа.<br>Компьютер: WASD / стрелки, пробел — огонь, E — мина.</p>
-    </div>`;
-  $('screen').classList.remove('hidden');
+      <p class="keys">Телефон: ${handTxt}. Джойстик ловит палец в любом месте своей половины пульта.<br>Компьютер: WASD / стрелки, пробел — огонь, E — мина.</p>
+    </div>`);
+}
+
+// Настройки: из меню (from = 'menu') или из паузы во время боя (from = 'pause').
+function seg(key, options) {
+  return `<div class="seg">${options.map(([v, label]) =>
+    `<button data-set="${key}" data-v="${v}" class="${String(settings[key]) === String(v) ? 'on' : ''}">${label}</button>`).join('')}</div>`;
+}
+
+function showSettings(from) {
+  const inBattle = from === 'pause';
+  showScreen(`
+    <h1>${inBattle ? 'Пауза' : 'Настройки'}</h1>
+    <p class="sub">${inBattle ? 'Бой остановлен' : 'Изменения сразу видны на пульте внизу'}</p>
+    <div class="set"><span>Рука</span>
+      ${seg('hand', [['right', 'Правша'], ['left', 'Левша']])}
+      <small>${settings.hand === 'left' ? 'Джойстик справа, кнопки «Огонь» и «Мина» слева.' : 'Джойстик слева, кнопки «Огонь» и «Мина» справа.'}</small>
+    </div>
+    <div class="set"><span>Размер джойстика</span>
+      ${seg('stick', [['m', 'Средний'], ['l', 'Большой'], ['xl', 'Огромный']])}
+      <small>На узком экране джойстик может быть чуть меньше выбранного, чтобы поместились кнопки.</small>
+    </div>
+    <div class="set"><span>Звук</span>${seg('sound', [['true', 'Вкл'], ['false', 'Выкл']])}</div>
+    <div class="set"><span>Вибрация</span>${seg('vibro', [['true', 'Вкл'], ['false', 'Выкл']])}
+      <small>Работает, когда игра открыта в Telegram.</small>
+    </div>
+    ${inBattle
+      ? '<button data-act="resume" class="big">Продолжить</button><button data-act="quit" class="mid">Выйти в меню</button><p class="sub" style="margin-top:8px">При выходе матч не засчитывается, монеты не начисляются.</p>'
+      : '<button data-act="menu" class="mid">Готово</button>'}`, 'settings');
+  $('screen').dataset.from = from;
+}
+
+function changeSetting(key, v) {
+  if (key === 'hand') settings.hand = v === 'left' ? 'left' : 'right';
+  else if (key === 'stick' && v in STICK_SIZES) settings.stick = v;
+  else if (key === 'sound') { settings.sound = v === 'true'; sound.on = settings.sound; if (sound.on) { sound.init(); sound.play('beep'); } }
+  else if (key === 'vibro') { settings.vibro = v === 'true'; haptic('medium'); }
+  saveSettings();
+  onResize();
+  showSettings($('screen').dataset.from || 'menu');
+}
+
+function pauseGame() {
+  if (!world || phase === 'menu' || paused) return;
+  paused = true;
+  resetInput();
+  menuIcon();
+  showSettings('pause');
+}
+
+function resumeGame() {
+  paused = false;
+  resetInput();
+  menuIcon();
+  $('screen').className = 'overlay hidden';
+  last = performance.now();
+  acc = 0;
+}
+
+// После гибели игрока: досчитать раунд без отрисовки и сразу показать итог.
+function skipRound() {
+  if (phase !== 'play' || !world || world.tanks[0].alive || paused) return;
+  const limit = ROUND_TIME * 60 + 60;
+  for (let i = 0; i < limit; i++) {
+    if (world.tanks.filter(t => t.alive).length <= 1 || world.time >= ROUND_TIME) break;
+    for (const t of world.tanks) if (t.alive && t.id !== 0) botThink(world, t, STEP);
+    world.update(STEP);
+    for (const e of world.events) if (e.type === 'dead' && e.by === 0 && e.tank !== 0) matchKills++;
+    world.events.length = 0;
+  }
+  renderer.parts = [];
+  setDeadControls(false);
+  hideBanner();
+  endRound();
 }
 
 function showGarage() {
@@ -149,13 +298,12 @@ function showGarage() {
     return `<div class="card${sel ? ' sel' : ''}${owned ? '' : ' locked'}">
       <div class="ch"><b>${m.name}</b><small>${m.desc}</small>${btn}</div>${modelStats(m)}</div>`;
   }).join('');
-  $('screen').innerHTML = `
+  showScreen(`
     <h1>Гараж</h1>
     <div class="coins"><i class="coin"></i> ${d.coins}</div>
     ${cards}
     <p class="sub" style="margin-top:10px">Монеты дают за матчи: участие, подбитые танки, выигранные раунды и победу.</p>
-    <button data-act="menu" class="mid">Назад</button>`;
-  $('screen').classList.remove('hidden');
+    <button data-act="menu" class="mid">Назад</button>`);
 }
 
 function banner(html, cls = '') {
@@ -178,7 +326,9 @@ function startMatch() {
   round = 0;
   matchKills = 0;
   botModels = MODEL_IDS.slice().sort(() => Math.random() - 0.5).slice(0, 3);
-  $('screen').classList.add('hidden');
+  paused = false;
+  $('screen').className = 'overlay hidden';
+  resetInput();
   sound.init();
   startRound();
 }
@@ -192,10 +342,13 @@ function startRound() {
   lastBeep = 0;
   playerDownShown = false;
   input.mineReq = false;
+  setDeadControls(false);
   renderScore();
+  menuIcon();
 }
 
 function endRound() {
+  setDeadControls(false);
   const alive = world.tanks.filter(t => t.alive);
   const winner = alive.length === 1 ? alive[0] : null;
   if (winner) wins[winner.id]++;
@@ -215,15 +368,17 @@ function showMatchEnd() {
     `<tr><td><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${t.body};margin-right:6px"></span>${t.name}</td><td class="w">${'●'.repeat(wins[i])}</td></tr>`).join('');
   const rw = AUTO ? { parts: [], total: 0 } : progress.reward({ kills: matchKills, roundsWon: wins[0], matchWon: champ === 0 });
   const rwRows = rw.parts.map(([a, b]) => `<tr><td>${a}</td><td class="w">+${b}</td></tr>`).join('');
-  $('screen').innerHTML = `
+  setDeadControls(false);
+  menuIcon();
+  showScreen(`
     <h1>${champ === 0 ? 'Победа!' : 'Поражение'}</h1>
     <p class="sub">${champ === 0 ? 'Арена ваша' : `Матч выиграл: ${TANK_INFO[champ].name}`} · раундов: ${round}</p>
     <table>${rows}</table>
     <table class="rw">${rwRows}<tr class="tot"><td>Итого</td><td class="w"><i class="coin"></i> +${rw.total}</td></tr></table>
     <div class="coins"><i class="coin"></i> ${progress.data.coins}</div>
     <button data-act="start" class="big">Новый матч</button>
-    <button data-act="garage" class="mid">Гараж</button>`;
-  $('screen').classList.remove('hidden');
+    <button data-act="garage" class="mid">Гараж</button>
+    <button data-act="menu" class="mid">В меню</button>`);
 }
 
 function handleEvents() {
@@ -245,7 +400,7 @@ function handleEvents() {
 }
 
 function tick(dt) {
-  if (phase === 'menu' || !world) return;
+  if (phase === 'menu' || !world || paused) return;
 
   if (phase === 'countdown') {
     phaseT -= dt;
@@ -278,7 +433,9 @@ function tick(dt) {
   if (phase === 'play') {
     if (!p.alive && !playerDownShown) {
       playerDownShown = true;
-      banner('Вас подбили<small>досматриваем раунд ×2</small>', 'small');
+      banner('Вас подбили<small>досматриваем ×2 или пропустите раунд</small>', 'small');
+      resetInput();
+      if (!AUTO) setDeadControls(true);
     }
     if (world.tanks.filter(t => t.alive).length <= 1 || world.time >= ROUND_TIME) endRound();
   } else if (phase === 'roundEnd') {
@@ -313,27 +470,40 @@ function frame(now) {
 }
 
 $('screen').addEventListener('click', e => {
+  const s = e.target.closest('button[data-set]');
+  if (s) { changeSetting(s.dataset.set, s.dataset.v); return; }
   const b = e.target.closest('button[data-act]');
   if (!b) return;
   const act = b.dataset.act, id = b.dataset.id;
   if (act === 'start') startMatch();
   else if (act === 'garage') showGarage();
   else if (act === 'menu') showMenu();
+  else if (act === 'settings') showSettings('menu');
+  else if (act === 'resume') resumeGame();
+  else if (act === 'quit') showMenu();
   else if (act === 'select') { progress.select(id); showGarage(); }
   else if (act === 'buy') { if (progress.buy(id)) { sound.init(); sound.play('pickup'); } showGarage(); }
 });
-$('btnSound').addEventListener('click', () => {
-  sound.on = !sound.on;
-  $('btnSound').textContent = sound.on ? '🔊' : '🔇';
+$('btnMenu').addEventListener('click', () => {
+  if (paused) resumeGame();
+  else if (world && phase !== 'menu') pauseGame();
+  else if (phase === 'menu') showSettings('menu');
 });
+$('btnSkip').addEventListener('click', skipRound);
+window.addEventListener('keydown', e => {
+  if (e.code === 'Escape' || e.code === 'KeyP') { if (paused) resumeGame(); else pauseGame(); }
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
 
 // Только для отладки из консоли.
 window.__game = {
-  get world() { return world; }, get phase() { return phase; }, get wins() { return wins; }, progress, renderer,
+  get world() { return world; }, get phase() { return phase; }, get wins() { return wins; }, get paused() { return paused; },
+  progress, renderer, settings, skipRound,
   step(sec) { for (let i = 0; i < sec * 60; i++) tick(STEP); renderer.draw(world, STEP, performance.now(), 0); updateTimer(); },
 };
 
-renderScore();
+applyLayout();
+renderer.resize();
 showMenu();
 progress.loadCloud(() => { if (phase === 'menu') showMenu(); });
 requestAnimationFrame(frame);

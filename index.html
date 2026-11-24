@@ -12,7 +12,7 @@
     <header id="hud">
       <div id="score"></div>
       <div id="timer">2:00</div>
-      <button id="btnSound" aria-label="Звук">🔊</button>
+      <button id="btnMenu" aria-label="Пауза и настройки">⏸</button>
     </header>
 
     <div id="stage">
@@ -21,24 +21,17 @@
     </div>
 
     <div id="controls">
-      <div id="stick"><div id="knob"></div></div>
+      <div id="stickZone"><div id="stick"><i class="arr u"></i><i class="arr r"></i><i class="arr d"></i><i class="arr l"></i><div id="knob"></div></div></div>
       <div id="btns">
         <button id="btnMine"><b>МИНА</b><small>E</small></button>
         <button id="btnFire"><b>ОГОНЬ</b><small>пробел</small></button>
       </div>
+      <button id="btnSkip" class="hidden"><b>Пропустить раунд ⏭</b><small>сразу к результату</small></button>
     </div>
 
     <div id="screen" class="overlay">
       <h1>Минная арена</h1>
-      <p class="sub">Прототип · танки и мины</p>
-      <div class="how">
-        <p>Вы — <b class="you">оливковый танк</b> с жёлтой меткой. Против вас три танка-бота. Выживает один.</p>
-        <p><b>Пушка</b> бьёт по прямой и ломает кирпич. <b>Мина</b> взрывается через 2,5 с крестом — и задевает всех, вас тоже. Мины взрываются цепочкой.</p>
-        <p>Из кирпичей выпадают ящики: <b>+1 мина</b>, <b>дальность взрыва</b>, <b>скорость</b>, <b>броня</b>, <b>скорострельность</b>.</p>
-        <p>С 70-й секунды арена сжимается — красные клетки скоро станут бетоном.</p>
-        <p class="keys">Телефон: джойстик слева, кнопки справа.<br>Компьютер: WASD / стрелки, пробел — огонь, E — мина.</p>
-      </div>
-      <button id="btnStart" class="big">В бой</button>
+      <p class="sub">Загрузка…</p>
     </div>
   </div>
   <script type="module" src="js/main.js"></script>
